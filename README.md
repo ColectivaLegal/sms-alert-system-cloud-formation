@@ -29,43 +29,31 @@ A picture of the pipeline is:
 
 # Set Up
 
-## MacOS
-
-Go's imports are case insensitive. This becomes painful if either your user name or packages that you are importing have
-an uppercase letter in them. To resolve this, before installing Go, you should create a case sensitive file system. I
-tried using the Disk Utility, but when the image is mounted, it does not mount it in a case sensitive way. Thus,
-instead, I recommend using the [casesafe.sh][] script. Update the variables at the top to:
-```
-MOUNT_POINT="${CASE_SAFE_MOUNT_POINT:-${HOME}/go}"
-VOLUME_PATH="${CASE_SAFE_VOLUME_PATH:-${HOME}/code/.golang.dmg.sparseimage}"
-VOLUME_NAME="${CASE_SAFE_VOLUME_NAME:-golang}"
-VOLUME_SIZE="${CASE_SAFE_VOLUME_SIZE:-5g}"
-```
-Then, to create the image and mount it to `~/go`, run:
-```
-casesafe.sh create
-casesafe.sh mount
-```
-If you want to automount the image at the start of logging in, run `casesafe.sh automount`. Explore the other options
-of the script by `casesafe.sh help` or looking at the source.
-
-[casesafe.sh]: https://gist.github.com/scottsb/479bebe8b4b86bf17e2d
-
-## General
+## Install Go
 
 Install Go by following the instructions at https://golang.org/doc/install. If you are running Linux, you can install
-it using your package manager.
+it using your package manager. Remember to update your `PATH` to include the go commands:
+```
+PATH="~/go/bin:$PATH"
+```
+
+## Install Govendor
 
 Go does not by default come with a package dependency system. However, there is a tool called `govendor`, which does
 this. This tool was chosen over `godep` because it permits multiple versions of a given library to be installed.
-Install the tool from https://github.com/kardianos/govendor.
-
-# Installing Dependencies
-
-All of the dependencies are defined in `./vendor/vendor.json`. `govendor` can install all of them via:
+Read more about the tool at https://github.com/kardianos/govendor.
 ```
-govendor sync
+# install govendor
+go get -u github.com/kardianos/govendor
 ```
+
+## Pull The Code and Install Dependencies
+
+This will pull the code and the dependencies, putting the dependencies in `${PROJECT_ROOT}/vendor/`
+```
+govendor get github.com/ColectivaLegal/sms-alert-system-cloud-formation
+```
+The dependencies are defined in `./vendor/vendor.json`.
 
 # Building
 
