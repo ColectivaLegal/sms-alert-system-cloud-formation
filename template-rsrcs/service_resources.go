@@ -12,6 +12,7 @@ import (
 var allIps = "0.0.0.0/0"
 var httpsPort int64 = 443
 var sshPort int64 = 22
+var nfsPort int64 = 2049
 var scalaPlayPort int64 = 9000
 var allProtocols = "-1"
 var tcpProtocol = "tcp"
@@ -146,6 +147,9 @@ func (s *ServiceResources) AddToTemplate() {
 	s.addLoadBalancerSecurityGroup()
 	s.addLoadBalancerTargetGroup()
 
+	s.addEfsVolume()
+	s.addEfsMountTargets()
+
 	s.addEcsAsg()
 	s.addEcsService()
 	s.addEcsCluster()
@@ -230,6 +234,10 @@ func (s *ServiceResources) launchConfigLogicalName() string {
 
 func (s *ServiceResources) ecsClusterLogicalName() string {
 	return s.Config.CfName("EcsCluster")
+}
+
+func (s *ServiceResources) efsLogicalName() string {
+	return s.Config.CfName("Efs")
 }
 
 func (s *ServiceResources) ecsTaskDefLogicalName() string {
@@ -411,9 +419,12 @@ func (s *ServiceResources) addLaunchConfiguration() {
 			UserData: Base64(Sub(String(fmt.Sprintf(
 				"#!/bin/bash -xe\n"+
 					"echo ECS_CLUSTER=${%s} >> /etc/ecs/ecs.config\n"+
-					"yum install -y aws-cfn-bootstrap\n"+
+					"yum install -y aws-cfn-bootstrap nfs-utils\n"+
+					"mkdir -p /mnt/efs/\n"+
+					"chown ec2-user:ec2-user /mnt/efs/\n"+
+					"mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 ${%s}.efs.${AWS::Region}.amazonaws.com:/ /mnt/efs/\n"+
 					"/opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --region ${AWS::Region} --resource ECSAutoScalingGroup\n",
-				s.ecsClusterLogicalName(),
+				s.ecsClusterLogicalName(), s.efsLogicalName(),
 			)))),
 		},
 	)
@@ -523,13 +534,24 @@ func (s *ServiceResources) addEc2SecurityGroup() {
 	)
 
 	s.Template.AddResource(
-		s.Config.CfName("EC2SecurityGroupIngressFromSelf"),
+		s.Config.CfName("EC2SecurityGroupIngressForScalaPlay"),
 		&EC2SecurityGroupIngress{
 			GroupId:               Ref(s.ec2SecurityGroupLogicalName()).String(),
 			SourceSecurityGroupId: Ref(s.ec2SecurityGroupLogicalName()).String(),
 			IpProtocol:            String(tcpProtocol),
 			FromPort:              Integer(scalaPlayPort),
 			ToPort:                Integer(scalaPlayPort),
+		},
+	)
+
+	s.Template.AddResource(
+		s.Config.CfName("EC2SecurityGroupIngressEFS"),
+		&EC2SecurityGroupIngress{
+			GroupId:               Ref(s.ec2SecurityGroupLogicalName()).String(),
+			SourceSecurityGroupId: Ref(s.ec2SecurityGroupLogicalName()).String(),
+			IpProtocol:            String(tcpProtocol),
+			FromPort:              Integer(nfsPort),
+			ToPort:                Integer(nfsPort),
 		},
 	)
 }
@@ -639,6 +661,29 @@ func (s *ServiceResources) addEcsCluster() {
 	)
 }
 
+func (s *ServiceResources) addEfsVolume() {
+	s.Template.AddResource(
+		s.efsLogicalName(),
+		&EFSFileSystem{
+			PerformanceMode: String("generalPurpose"),
+		},
+	)
+}
+
+func (s *ServiceResources) addEfsMountTargets() {
+	fileSystemId := Ref(s.efsLogicalName()).String()
+	for i, subnetRef := range s.subnetRefs().Literal {
+		s.Template.AddResource(
+			s.Config.CfName(fmt.Sprintf("%s%d", "EC2MountTarget", i)),
+			&EFSMountTarget{
+				FileSystemId:   fileSystemId,
+				SecurityGroups: StringList(Ref(s.ec2SecurityGroupLogicalName())),
+				SubnetId:       subnetRef,
+			},
+		)
+	}
+}
+
 func (s *ServiceResources) addEcsTaskDef() {
 	s.Template.AddResource(
 		s.ecsTaskDefLogicalName(),
@@ -647,12 +692,11 @@ func (s *ServiceResources) addEcsTaskDef() {
 				*s.alertServiceContainerDef(),
 				*s.databaseContainerDef(),
 			},
-			// TODO: Issue #1: mount an EFS volume or just use Dynamo DB
 			Volumes: &EC2ContainerServiceTaskDefinitionVolumesList{
 				EC2ContainerServiceTaskDefinitionVolumes{
 					Name: databaseEcsVolumeName,
 					Host: &EC2ContainerServiceTaskDefinitionVolumesHost{
-						SourcePath: String("/ecs-volumes/database-volume"),
+						SourcePath: String("/mnt/efs/mysql/"),
 					},
 				},
 			},

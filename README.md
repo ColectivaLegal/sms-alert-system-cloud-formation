@@ -181,7 +181,10 @@ PROJ_DIR="${GOPATH}/src/github.com/ColectivaLegal/"
 
 mkdir -p "${PROJ_DIR}"
 cd "${PROJ_DIR}"
-git clone git@github.com/${USER_NAME}/sms-alert-system-cloud-formation.git
+# fetch the code
+git clone git@github.com:${USER_NAME}/sms-alert-system-cloud-formation.git
+# pull the dependencies into ./vendor/
+govendor sync
 ```
 
 Debug logging can be turned on by setting an environment variable:
